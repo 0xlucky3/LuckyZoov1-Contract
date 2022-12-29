@@ -4,21 +4,20 @@ pragma solidity ^0.8.16;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./Interface/ILucky3ZooRuleV1.sol";
 
-contract Lucky3ZooRuleV1 is ILucky3ZooRuleV1{
+contract Lucky3ZooRuleV1 is ILucky3ZooRuleV1,Ownable{
     //CONSTANTS
     uint8 private constant BLANKCODE=10;
     uint8 private constant MAXNUMBER=5;
 
-    uint public MaxMultiple=100;
+    uint public MaxMultiple=1000;
 
     mapping(GameMode=>uint16) private _bonusMultiple; //x10
 
     constructor(){
-        _bonusMultiple[GameMode.Strict]=1200; //1/216
-        _bonusMultiple[GameMode.Any]=200; // 1/36
-        _bonusMultiple[GameMode.AnyTwo]=200; // 1/36
+        _bonusMultiple[GameMode.Strict]=800;
+        _bonusMultiple[GameMode.Any]=120;
+        _bonusMultiple[GameMode.AnyTwo]=180;
         _bonusMultiple[GameMode.AnyOne]=30;
-
     }
 
     function getBlankCode() override public pure returns(uint){
@@ -34,7 +33,6 @@ contract Lucky3ZooRuleV1 is ILucky3ZooRuleV1{
     }
 
     function verifyFormat(uint8[] memory numberArr) override public view returns(bool){
-
         if(numberArr.length!=5){
             return false;
         }
@@ -51,7 +49,6 @@ contract Lucky3ZooRuleV1 is ILucky3ZooRuleV1{
         }
 
         return true;
-
     }
 
     function verifyResult(LuckyNumber memory a,uint8[3] memory b) override public pure returns(bool){
@@ -96,7 +93,6 @@ contract Lucky3ZooRuleV1 is ILucky3ZooRuleV1{
             if(a.n3==BLANKCODE && a.n1==b[0] && a.n2==b[1]){
                 return true;
             }
-
         }
         else if(a.mode==GameMode.AnyOne){  //any one
             if(a.n1!=BLANKCODE && a.n2==BLANKCODE && a.n3==BLANKCODE && a.n1==b[0]){
@@ -111,5 +107,13 @@ contract Lucky3ZooRuleV1 is ILucky3ZooRuleV1{
         }
         
         return false;
+    }
+
+    function updateBonusMultiple(GameMode mode,uint16 multiple) external onlyOwner{
+        _bonusMultiple[mode]=multiple;
+    }
+
+    function updateMaxMultiple(uint multiple) external onlyOwner{
+        MaxMultiple=multiple;
     }
 }

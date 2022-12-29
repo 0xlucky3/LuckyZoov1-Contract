@@ -1,4 +1,18 @@
 //SPDX-License-Identifier:MIT
+
+/***
+
+$$\      $$\   $$\  $$$$$$\  $$\   $$\ $$\     $$\ $$$$$$$$\  $$$$$$\   $$$$$$\  
+$$ |     $$ |  $$ |$$  __$$\ $$ | $$  |\$$\   $$  |\____$$  |$$  __$$\ $$  __$$\ 
+$$ |     $$ |  $$ |$$ /  \__|$$ |$$  /  \$$\ $$  /     $$  / $$ /  $$ |$$ /  $$ |
+$$ |     $$ |  $$ |$$ |      $$$$$  /    \$$$$  /     $$  /  $$ |  $$ |$$ |  $$ |
+$$ |     $$ |  $$ |$$ |      $$  $$<      \$$  /     $$  /   $$ |  $$ |$$ |  $$ |
+$$ |     $$ |  $$ |$$ |  $$\ $$ |\$$\      $$ |     $$  /    $$ |  $$ |$$ |  $$ |
+$$$$$$$$\\$$$$$$  |\$$$$$$  |$$ | \$$\     $$ |    $$$$$$$$\  $$$$$$  | $$$$$$  |
+\________|\______/  \______/ \__|  \__|    \__|    \________| \______/  \______/ 
+                                                                                 
+***/
+
 pragma solidity ^0.8.16;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -9,7 +23,7 @@ import "@chainlink/contracts/src/v0.8/KeeperCompatible.sol";
 import "./Interface/ILucky3ZooRuleV1.sol";
 import "./Interface/IReferralPool.sol";
 import "./Shared/ILucky3ZooRuleV1Shared.sol";
-//import "hardhat/console.sol";
+import "./Shared/Common.sol";
 
 contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsumerBaseV2,Ownable,ReentrancyGuard{
 
@@ -46,28 +60,28 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
     // CHAINLINK CONFIG (polygon testnet)
     uint32 public vrfCallbackGasLimit=500000;
     uint8 public vrfRequestConfirmations=3;
-    uint64 public vrfSubscriptionId=2804;
-    address private _vrfCoordinator=0x7a1BaC17Ccc5b313516C5E16fb24f7659aA5ebed;
-    address private _vrfLinkContract=0x326C977E6efc84E512bB9C30f76E30c160eD06FB;
-    bytes32 private _vrfKeyHash=0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f;
+    uint64 public vrfSubscriptionId=538;
+    address private _vrfCoordinator=0xAE975071Be8F8eE67addBC1A82488F1C24858067;
+    address private _vrfLinkContract=0xb0897686c545045aFc77CF20eC7A532E3120E0F1;
+    bytes32 private _vrfKeyHash=0xcc294a196eeeb44da2888d17c0625cc88d70d9760a69d58d853ba6581a9ab0cd;
     uint private _vrfRequestId;
 
-    
     // PUBLIC STATE
-    address public fundAddress=0x380a2B0bF8e6324b5ed4E7ab833eF5b2d9b387F8;
+    address public fundAddress=0xF8b1e47341D4A535bebE2722177E51a86Bf9d052;
     // Game rules contract address
     address public ruleContract;
     // Default referrer
-    address public defaultReferrer=0x8d4D60410c676FD0C00F267B12062a159e12f2EC;
+    address public defaultReferrer=0xd8A337eC5a8c9f4837e08Aa776B58C6C1a94D62B;
+
+    address public luckyToken;
+
     GameStatus public gameStatus;
     GameFee public gameFeeConfig;
     // Total bonuses paid out
     uint public totalBonusPaid;
     // Current round
     uint public currentRound;
-    // Maximum withdrawable bonus ratio
-    uint8 public maxBonusWithdrawalRatio=30;
-
+    
     // Interval time per round
     uint public roundIntervalTime=3 minutes;
     // Maximum query rounds
@@ -75,6 +89,18 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
     // Initial fund pool, withdrawable
     // The administrator can only withdraw the initial fund pool, and no one can withdraw other funds in the contract.
     uint public initFundPool=0;
+
+    //Minimum tax threshold
+    uint public minTaxThreshold=10 ether;
+
+    // Maximum withdrawable bonus ratio
+    uint8 public maxBonusWithdrawalRatio=50;
+
+    //Whether to reward native token
+    bool public isRewardToken=false;
+
+    //Reward token multiple
+    uint16 public rewardTokenMultiple=10;
 
     // PRIVATE STATE
     bool private _allowContract=true;
@@ -91,10 +117,11 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
     mapping(address=>uint) private _userPaidBonus;
     mapping(address=>bool) private _blockAddress; 
 
-    event Bet(address indexed user, uint indexed round,uint8[][] numberArray);
-    event RoundResult(uint indexed round,uint8[3] result);
-    event WithdrawBonus(address indexed user,uint round,uint amount);
-    event WithdrawAllBonus(address indexed user,uint amount);
+    event BetEvt(address indexed user, uint indexed round,uint8[][] numberArray);
+    event RoundResultEvt(uint indexed round,uint8[3] result);
+    //event WithdrawBonusEvt(address indexed user,uint round,uint amount);
+    event WithdrawAllBonusEvt(address indexed user,uint amount);
+    event TransferBonusEvt(address indexed from,address indexed to,uint value,int8 level);
     
     constructor(address ruleContractAddress,address referralContractAddress) VRFConsumerBaseV2(_vrfCoordinator){
         ICOORDINATOR=VRFCoordinatorV2Interface(_vrfCoordinator);
@@ -104,9 +131,9 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
         _lastRequestTime=block.timestamp;
 
         // Configure Game Fees
-        gameFeeConfig.singleBetCost=10**17;
-        gameFeeConfig.fundFeeRate=3;
-        gameFeeConfig.winnerFeeRate=8;
+        gameFeeConfig.singleBetCost=2*10**17;
+        gameFeeConfig.fundFeeRate=18;
+        gameFeeConfig.winnerFeeRate=15;
         gameFeeConfig.level1RewardRate=5;
         gameFeeConfig.level2RewardRate=2;
     }
@@ -147,10 +174,9 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
                 _gameResult[currentRound][0]=result[0];
                 _gameResult[currentRound][1]=result[1];
                 _gameResult[currentRound][2]=result[2];
-
                 gameStatus=GameStatus.paused;
 
-                emit RoundResult(currentRound,result);
+                emit RoundResultEvt(currentRound,result);
             }
         }
     }
@@ -170,7 +196,6 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
         }
         
         return(upkeepNeeded,'');
-        
     }
 
     function performUpkeep(bytes calldata) external override{
@@ -188,16 +213,25 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
      * @dev Calculate game result based on random number
      */
     function calculate(uint randomNumber) private view returns(uint8[3] memory){
-        uint8[3] memory r;
+        uint8[3] memory results;
+        uint8 limit=6;
+        uint8[6] memory numberMap=[2,4,3,0,5,1];
 
         if(randomNumber==0){
             randomNumber=uint(keccak256(abi.encodePacked(block.difficulty,block.timestamp,blockhash(block.number-1))));
         }
         
-        r[0]=uint8((randomNumber/1)%6);
-        r[1]=uint8((randomNumber/10**2)%6);
-        r[2]=uint8((randomNumber/10**4)%6);
-        return r;
+        uint8 t;
+        uint8 temp;
+        for(uint8 i=0;i<3;i++){
+            t=uint8(randomNumber%(limit-i)+i);
+            temp=numberMap[i];
+            numberMap[i]=numberMap[t];
+            numberMap[t]=temp;
+            results[i]=numberMap[i];
+        }
+
+        return results;
     }
 
     /**
@@ -240,7 +274,7 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
     function getEstimateNextRoundTime() public view returns(uint){
         return _lastRequestTime+roundIntervalTime;
     }
-
+    
     /**
      * @dev Game betting
      *
@@ -267,42 +301,40 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
             _userBetRound[sender].push(currentRound+1);
         }
 
-        if(referrer==address(0) && defaultReferrer!=address(0)){
+        if((referrer==address(0) || referrer==sender) && defaultReferrer!=address(0)){
             referrer=defaultReferrer;
         }
 
         address level1Ref=IREFERRALPOOL.getReferrer(sender);
         address level2Ref=address(0);
 
-        if(level1Ref==address(0) || level1Ref==sender){
-            if(referrer!=address(0)){
-                IREFERRALPOOL.bindReferrer(sender,referrer);
-                level1Ref=referrer;
-            }
+        if(level1Ref==address(0) && referrer!=address(0)){
+            IREFERRALPOOL.bindReferrer(sender,referrer);
+            level1Ref=referrer;
         }
 
-
         for(uint8 i=0;i<numberArray.length;i++){
-            
             LuckyNumber memory betNumber=ILUCKY3ZOORULEV1.formatObject(numberArray[i]);
-            
             _betData[currentRound+1][sender].push(betNumber);
         }
 
         if(level1Ref!=address(0) && level1Ref!=sender){
-            
             if(gameFeeConfig.level1RewardRate>0){
-                payable(level1Ref).transfer(totalFee*gameFeeConfig.level1RewardRate/100);
+                uint bonus=totalFee*gameFeeConfig.level1RewardRate/100;
+                payable(level1Ref).transfer(bonus);
+                emit TransferBonusEvt(sender,level1Ref,bonus,1);
             }
 
             level2Ref=IREFERRALPOOL.getReferrer(level1Ref);
 
             if(gameFeeConfig.level2RewardRate>0){
+                uint bonus=totalFee*gameFeeConfig.level2RewardRate/100;
                 if(level2Ref!=address(0) &&  level2Ref!=sender){
-                    payable(level2Ref).transfer(totalFee*gameFeeConfig.level2RewardRate/100);
+                    payable(level2Ref).transfer(bonus);
+                    emit TransferBonusEvt(sender,level2Ref,bonus,2);
                 }
                 else if(defaultReferrer!=address(0)){
-                    payable(defaultReferrer).transfer(totalFee*gameFeeConfig.level2RewardRate/100);
+                    payable(defaultReferrer).transfer(bonus);
                 }
             }
         }
@@ -316,7 +348,13 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
             _lastRequestTime=block.timestamp;
         }
 
-        emit Bet(sender,currentRound+1,numberArray);
+        //reward token
+        uint rewardTokenQty=totalFee*rewardTokenMultiple;
+        if(isRewardToken && luckyToken!=address(0) && IERC20(luckyToken).balanceOf(address(this))>=rewardTokenQty){
+            TransferHelper.safeTransfer(luckyToken,sender,rewardTokenQty);
+        }
+
+        emit BetEvt(sender,currentRound+1,numberArray);
     }
 
     /**
@@ -330,7 +368,6 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
      * @dev Returns the list of rounds the user has bet on.
      */
     function queryUserBettedRound(address user,uint cursor,uint size) public view returns(uint[] memory list,bool[] memory result){
-        
         uint[] memory roundList=_userBetRound[user];
         
         if(roundList.length==0){
@@ -353,6 +390,15 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
         }
 
         return (list,result);
+    }
+
+    function getUserRoundStatus(address user,uint round) public view returns(uint8 status,uint bonus){
+        LuckyNumber[] memory luckyNumber=_betData[round][user];
+        if(luckyNumber.length==0) return (0,0);
+
+        bonus=queryBonus(user,round);
+
+        status=bonus>0?2:1;
     }
 
     function verifyRoundResult_(address user,uint round) private view returns(bool){
@@ -405,8 +451,7 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
         uint8[3] memory roundResult=_gameResult[round];
         LuckyNumber[] memory userBetData=_betData[round][user];
 
-        uint bonus=0;
-      
+        uint bonus=0;      
         for(uint i=0;i<userBetData.length;i++){
 
             if(ILUCKY3ZOORULEV1.verifyResult(userBetData[i],roundResult)){
@@ -415,6 +460,7 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
             }
             
         }
+
         return bonus;
     }
     
@@ -432,7 +478,6 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
         }
 
         return queryBonus(user,round);
-        
     }
 
     /**
@@ -465,7 +510,8 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
             bonus=bonus<maxBonus?bonus:maxBonus;
         }
 
-        if(gameFeeConfig.winnerFeeRate>0 && fundAddress!=address(0)){
+        //Check if you need to pay taxes
+        if(bonus>=minTaxThreshold && gameFeeConfig.winnerFeeRate>0 && fundAddress!=address(0)){
             uint fee=(bonus*gameFeeConfig.winnerFeeRate)/100;
             payable(fundAddress).transfer(fee);
             
@@ -477,40 +523,7 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
             payable(winner).transfer(bonus);
         }
 
-        emit WithdrawAllBonus(winner,bonus);
-    }
-
-    function withdrawBonus(uint round) public nonReentrant checkSender{
-        address winner=msg.sender;
-        uint balance=getBalance();
-        
-        require(_bonusWithdrawalStatus[round][winner]==false,'');
-        uint bonus=queryUnPaidBonus(winner,round);
-        require(bonus>0,"Your bonus is not enough");
-        require(balance>=bonus,"Insufficient bonuses available");
-        _bonusWithdrawalStatus[round][winner]=true;
-        _userPaidBonus[winner]+=bonus;
-        totalBonusPaid+=bonus;
-
-        //MAX BONUS
-        if(maxBonusWithdrawalRatio>0){
-            uint maxBonus=(balance*maxBonusWithdrawalRatio)/100;
-            bonus=bonus<maxBonus?bonus:maxBonus;
-        }
-
-        //transfer
-        if(gameFeeConfig.winnerFeeRate>0 && fundAddress!=address(0)){
-            uint fee=(bonus*gameFeeConfig.winnerFeeRate)/100;
-            payable(fundAddress).transfer(fee);
-            if(bonus-fee >0){
-                payable(winner).transfer(bonus-fee);
-            }
-        }
-        else{
-            payable(winner).transfer(bonus);
-        }
-
-        emit WithdrawBonus(winner,round,bonus);
+        emit WithdrawAllBonusEvt(winner,bonus);
     }
 
     /**========================================================================================================**/
@@ -601,6 +614,15 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
     }
 
     /**
+     * @dev Configure reward native token
+     */
+    function setLuckyTokenConfig(address token,bool isReward,uint16 rewardMultiple) external onlyOwner{
+        luckyToken=token;
+        isRewardToken=isReward;
+        rewardTokenMultiple=rewardMultiple;
+    }
+
+    /**
      * @dev Block malicious users
      */
     function addBlockUser(address user) external onlyOwner{
@@ -616,12 +638,5 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
         delete _blockAddress[user];
     }
 
-    /*function withdrawalFund(address to) public onlyOwner{
-        payable(to).transfer(address(this).balance);
-    }*/
-
     receive() external payable {}
 }
-
-
-
