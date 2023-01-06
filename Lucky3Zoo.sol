@@ -456,7 +456,7 @@ contract Lucky3Zoo is ILucky3ZooRuleV1Shared,KeeperCompatibleInterface,VRFConsum
 
             if(ILUCKY3ZOORULEV1.verifyResult(userBetData[i],roundResult)){
                 uint16 multiple=ILUCKY3ZOORULEV1.getModeMultiple(userBetData[i].mode);
-                bonus+= gameFeeConfig.singleBetCost*multiple/10;
+                bonus+= gameFeeConfig.singleBetCost*userBetData[i].x*multiple/10;
             }
             
         }
